@@ -1,29 +1,8 @@
-# import gymnasium as gym
-# from stable_baselines3 import SAC
-
-# # Prefer best_model if it exists
-# model_path = "models/best_model.zip"
-
-# env = gym.make("CarRacing-v3", render_mode="human")
-# model = SAC.load(model_path)
-
-# obs, _ = env.reset(seed=0)
-
-# for _ in range(2000):
-#     action, _ = model.predict(obs, deterministic=True)
-#     obs, reward, done, truncated, info = env.step(action)
-#     if done or truncated:
-#         obs, _ = env.reset()
-
-# env.close()
-
-
 import gymnasium as gym
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import DummyVecEnv, VecTransposeImage, VecFrameStack
 
-
-MODEL_PATH = "models/sac_carracing_final"
+MODEL_PATH = "models/latest"   # SB3 adds .zip automatically
 ENV_ID = "CarRacing-v3"
 SEED = 42
 
@@ -41,14 +20,14 @@ env = DummyVecEnv([make_env(SEED)])
 env = VecTransposeImage(env)
 env = VecFrameStack(env, n_stack=4)
 
-# --- Load model WITH env ---
+# --- Load model ---
 model = SAC.load(MODEL_PATH, env=env)
 
 obs = env.reset()
 
 while True:
     action, _ = model.predict(obs, deterministic=True)
-    obs, reward, done, info = env.step(action)
+    obs, rewards, dones, infos = env.step(action)
 
-    if done:
+    if dones[0]:
         obs = env.reset()

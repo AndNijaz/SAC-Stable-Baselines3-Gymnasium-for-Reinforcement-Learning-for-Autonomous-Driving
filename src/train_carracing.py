@@ -3,7 +3,7 @@ import gymnasium as gym
 
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import DummyVecEnv, VecTransposeImage, VecFrameStack
-from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
 from stable_baselines3.common.utils import set_random_seed
 
 
@@ -20,15 +20,14 @@ def main():
     set_random_seed(seed)
 
     os.makedirs("models", exist_ok=True)
+    os.makedirs("models/checkpoints", exist_ok=True)
     os.makedirs("logs", exist_ok=True)
     os.makedirs("results", exist_ok=True)
 
-    # Training env (vectorized)
     train_env = DummyVecEnv([make_env(seed)])
-    train_env = VecTransposeImage(train_env)      # (H,W,C) -> (C,H,W)
-    train_env = VecFrameStack(train_env, n_stack=4)  # adds temporal context
+    train_env = VecTransposeImage(train_env)
+    train_env = VecFrameStack(train_env, n_stack=4)
 
-    # Eval env
     eval_env = DummyVecEnv([make_env(seed + 1)])
     eval_env = VecTransposeImage(eval_env)
     eval_env = VecFrameStack(eval_env, n_stack=4)
@@ -43,62 +42,51 @@ def main():
         render=False,
     )
 
-    # model = SAC(
-    #     policy="CnnPolicy",
-    #     env=train_env,
-    #     verbose=1,
-    #     seed=seed,
-    #     tensorboard_log="logs",
-    #     device="cuda",  # will fall back to cpu if CUDA is unavailable
-    #     learning_rate=3e-4,
-    #     buffer_size=200_000,
-    #     batch_size=256,
-    #     tau=0.005,
-    #     gamma=0.99,
-    #     train_freq=1,
-    #     gradient_steps=1,
-    #     ent_coef="auto",
-    # )
-
-    model = SAC(
-        policy="CnnPolicy",
-        env=train_env,
-
-        # ---- MEMORY-CRITICAL ----
-        buffer_size=10_000,      # 🔴 was 200k → now safe
-        # buffer_size=30_000,      # 🔴 was 200k → now safe
-        # batch_size=64,           # small batch
-        batch_size=32,           # small batch
-
-        # ---- TRAINING ----
-        learning_rate=3e-4,
-        train_freq=1,
-        gradient_steps=1,
-
-        # ---- RL HYPERPARAMS ----
-        gamma=0.99,
-        tau=0.005,
-        ent_coef="auto",
-
-        # ---- SYSTEM ----
-        device="cpu",
-        verbose=1,
+    checkpoint_callback = CheckpointCallback(
+        save_freq=10_000,
+        save_path="models/checkpoints",
+        name_prefix="sac_carracing",
+        save_replay_buffer=False,
+        save_vecnormalize=False,
     )
 
+    latest_path = "models/latest.zip"
 
-    # CarRacing is harder. Start with this, then scale up if needed.
+    if os.path.exists(latest_path):
+        print(f"Resuming from {latest_path}")
+        model = SAC.load(latest_path, env=train_env, device="cpu")
+    else:
+        print("Starting from scratch")
+        model = SAC(
+            policy="CnnPolicy",
+            env=train_env,
+            buffer_size=20_000,
+            batch_size=64,
+            learning_rate=3e-4,
+            train_freq=1,
+            gradient_steps=1,
+            gamma=0.99,
+            tau=0.005,
+            ent_coef="auto",
+            device="cpu",
+            verbose=1,
+            tensorboard_log="logs",
+            seed=seed,
+        )
+
     # total_timesteps = 500_000
-    total_timesteps = 100_000
+    total_timesteps = 10_000
 
     model.learn(
         total_timesteps=total_timesteps,
+        reset_num_timesteps=False,
         log_interval=10,
-        callback=eval_callback,
+        callback=[eval_callback, checkpoint_callback],
         progress_bar=True,
     )
 
-    model.save("models/sac_carracing_final")
-    print("Saved models/sac_carracing_final.zip")
+    model.save("models/latest")
+    print("Saved models/latest.zip")
 
 
 if __name__ == "__main__":
